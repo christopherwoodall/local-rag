@@ -25,6 +25,11 @@ dependencies = [
     "docling==2.95.0",
     "python-multipart==0.0.29",
     "httpx==0.28.1",
+    "motor==3.*",
+    "trafilatura==2.*",
+    "markdownify==0.14.*",
+    "faster-whisper==1.*",
+    "librosa==0.11.*",
 ]
 
 # =============================================================
