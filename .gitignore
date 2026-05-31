@@ -1,9 +1,13 @@
-# Project specific
+# Developer specific
+.ideas/
 TODO.md
-PROMPT_CHAIN.md
-agent_prompts/**
+
+# Project specific
+documents/**
+!documents/.gitkeep
 qdrant_storage/**
 mongo_data/**
+data/**
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

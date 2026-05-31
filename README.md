@@ -2,7 +2,7 @@
 
 ![screenshot](/docs/assets/screenshot.png)
 
-A fully local, Apple-Silicon-optimized Retrieval-Augmented Generation (RAG) server. Ingest **PDFs, web pages, and audio**, then run **hybrid vector search** over the results — all on your own machine, with a built-in modular web UI.
+A fully local, Apple-Silicon-optimized Retrieval-Augmented Generation (RAG) server. Ingest **PDFs, web pages, and audio**, then run **hybrid vector search** over the results — all on your own machine, with a built-in modular web UI. Download or delete sources, play audio natively, and view spectrogram sparklines — all with strict path-traversal protection.
 
 - **Qdrant** — hybrid vector store (dense + sparse + spectrogram vectors), the source of truth for search.
 - **MongoDB** — metadata and full document/transcript content backing the library and reader UI.
@@ -59,6 +59,7 @@ Configuration is via environment variables (sensible localhost defaults):
 | `QDRANT_HOST` | `localhost`                 | Qdrant host (REST on port `6333`).   |
 | `MONGO_URI`   | `mongodb://localhost:27017` | MongoDB connection string.           |
 | `MONGO_DB`    | `rag`                       | MongoDB database name.               |
+| `UPLOAD_DIR`  | `<repo>/data/uploads`       | Directory for persisted upload files. |
 
 | Service     | Port    |
 | ----------- | ------- |
@@ -107,6 +108,9 @@ Then restart the server; it recreates the collection with all three vectors. Doc
 
 ### MongoDB is optional but powers the UI
 If MongoDB is down, the server still starts and vector search still works, but metadata features degrade: the document list (`GET /api/documents`), the reader (`GET /api/document/{filename}`), and tag persistence rely on MongoDB.
+
+### Pre-existing documents may lack downloadable files
+Documents ingested before the upload-persistence feature do not have a file in `data/uploads/`, so `GET /api/file/{filename}` and audio playback will return 404 for them. Deleting them still works (the file `unlink` is a no-op). To enable download/playback, re-ingest the source file.
 
 ## Running as a macOS background service (launchd)
 

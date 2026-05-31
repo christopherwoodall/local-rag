@@ -2,6 +2,7 @@ import contextlib
 
 from docling.chunking import HybridChunker
 from docling.document_converter import DocumentConverter
+from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
 from fastembed import SparseTextEmbedding, TextEmbedding
 from faster_whisper import WhisperModel
 from qdrant_client import QdrantClient, models
@@ -15,7 +16,12 @@ qdrant_client = QdrantClient(host=config.QDRANT_HOST, port=6333)
 dense_embed_model = TextEmbedding(model_name="nomic-ai/nomic-embed-text-v1.5")
 sparse_embed_model = SparseTextEmbedding(model_name="Qdrant/bm25")
 doc_converter = DocumentConverter()
-chunker = HybridChunker()
+chunker = HybridChunker(
+    tokenizer=HuggingFaceTokenizer.from_pretrained(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        max_tokens=500,
+    )
+)
 
 print("Loading Whisper model (this may take a moment on first run)...")
 # CTranslate2 CPU backend — works on Apple Silicon without CUDA.
@@ -91,6 +97,50 @@ def update_document_tags(filename: str, tags: list[str]):
         mongo_store.update_tags(filename, tags)
 
 
+def delete_document(filename: str) -> None:
+    """Removes every vector point belonging to a document from Qdrant."""
+    qdrant_client.delete(
+        collection_name=config.COLLECTION_NAME,
+        points_selector=models.FilterSelector(
+            filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="source", match=models.MatchValue(value=filename)
+                    )
+                ]
+            )
+        ),
+    )
+
+
+def get_spectrogram(filename: str) -> list[float] | None:
+    """Returns the file-level spectrogram vector (chunk 0) for a document, or
+    None if absent or zero-padded (non-audio sources)."""
+    points, _ = qdrant_client.scroll(
+        collection_name=config.COLLECTION_NAME,
+        scroll_filter=models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="source", match=models.MatchValue(value=filename)
+                ),
+                models.FieldCondition(
+                    key="chunk_index", match=models.MatchValue(value=0)
+                ),
+            ]
+        ),
+        limit=1,
+        with_vectors=["spectrogram"],
+        with_payload=False,
+    )
+    if not points:
+        return None
+    vectors = points[0].vector
+    spec = vectors.get("spectrogram") if isinstance(vectors, dict) else None
+    if not spec or not any(spec):
+        return None
+    return spec
+
+
 def ingest(source: str, tags: list[str], **kwargs) -> IngestResult:
     """Routes a source to its registered ingestor plugin and ingests it."""
     ingestor = registry.get_ingestor(source)
@@ -102,10 +152,10 @@ def search(req: SearchQuery) -> list[SearchResultItem]:
     query_prefixed = f"search_query: {req.query}"
     query_dense = list(dense_embed_model.embed([query_prefixed]))[0].tolist()
     query_sparse_raw = list(sparse_embed_model.embed([req.query]))[0]
-    query_sparse = {
-        "indices": query_sparse_raw.indices.tolist(),
-        "values": query_sparse_raw.values.tolist(),
-    }
+    query_sparse_vec = models.SparseVector(
+        indices=query_sparse_raw.indices.tolist(),
+        values=query_sparse_raw.values.tolist(),
+    )
 
     query_filter = None
     if req.tags:
@@ -116,30 +166,43 @@ def search(req: SearchQuery) -> list[SearchResultItem]:
         query_filter = models.Filter(must=must_conditions)
 
     if req.mode == "dense":
-        results = qdrant_client.search(
-            collection_name=config.COLLECTION_NAME,
-            query_vector=("dense", query_dense),
-            query_filter=query_filter,
-            limit=req.limit,
-        )
-    elif req.mode == "sparse":
-        results = qdrant_client.search(
-            collection_name=config.COLLECTION_NAME,
-            query_vector=("sparse", query_sparse),
-            query_filter=query_filter,
-            limit=req.limit,
-        )
-    else:
-        prefetch = [
-            models.Prefetch(vector={"dense": query_dense}, limit=req.limit),
-            models.Prefetch(vector={"sparse": query_sparse}, limit=req.limit),
-        ]
         results = qdrant_client.query_points(
             collection_name=config.COLLECTION_NAME,
-            prefetch=prefetch,
-            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            query=query_dense,
+            using="dense",
             query_filter=query_filter,
             limit=req.limit,
+            with_payload=True,
+        ).points
+    elif req.mode == "sparse":
+        results = qdrant_client.query_points(
+            collection_name=config.COLLECTION_NAME,
+            query=query_sparse_vec,
+            using="sparse",
+            query_filter=query_filter,
+            limit=req.limit,
+            with_payload=True,
+        ).points
+    else:
+        results = qdrant_client.query_points(
+            collection_name=config.COLLECTION_NAME,
+            prefetch=[
+                models.Prefetch(
+                    query=query_dense,
+                    using="dense",
+                    limit=req.limit * 2,
+                    filter=query_filter,
+                ),
+                models.Prefetch(
+                    query=query_sparse_vec,
+                    using="sparse",
+                    limit=req.limit * 2,
+                    filter=query_filter,
+                ),
+            ],
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            limit=req.limit,
+            with_payload=True,
         ).points
 
     return [

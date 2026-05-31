@@ -1,12 +1,13 @@
+import contextlib
 import json
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
+from fastapi.responses import FileResponse
 
-from . import engine
+from . import config, engine
 from .schemas import (
     DocumentMeta,
     SearchQuery,
@@ -17,6 +18,19 @@ from .schemas import (
 from .store import mongo_store
 
 router = APIRouter(prefix="/api")
+
+
+def _safe_upload_path(filename: str) -> Path:
+    """Resolves a user-supplied filename strictly within the upload directory.
+
+    Rejects path traversal (``../``) and absolute paths before any filesystem
+    access, returning a 400.
+    """
+    base = config.UPLOAD_DIR.resolve()
+    candidate = (base / filename).resolve()
+    if not candidate.is_relative_to(base):
+        raise HTTPException(400, "Invalid filename")
+    return candidate
 
 
 @router.get("/documents", response_model=list[DocumentMeta])
@@ -33,7 +47,33 @@ async def get_document_text(filename: str):
     record = await mongo_store.get_document(filename)
     if not record:
         raise HTTPException(404, "Document not found")
-    return {"content": record.markdown_content}
+    spectrogram = (
+        engine.get_spectrogram(filename) if record.source_type == "audio" else None
+    )
+    return {
+        "content": record.markdown_content,
+        "source_type": record.source_type,
+        "source_url": record.source_url,
+        "spectrogram": spectrogram,
+    }
+
+
+@router.get("/file/{filename}")
+def get_file(filename: str):
+    path = _safe_upload_path(filename)
+    if not path.is_file():
+        raise HTTPException(404, "File not found")
+    return FileResponse(path)
+
+
+@router.delete("/document/{filename}")
+def delete_document(filename: str):
+    path = _safe_upload_path(filename)
+    engine.delete_document(filename)
+    with contextlib.suppress(Exception):
+        mongo_store.delete_document(filename)
+    path.unlink(missing_ok=True)
+    return {"deleted": filename}
 
 
 @router.patch("/tags/{filename}")
@@ -47,24 +87,25 @@ async def ingest_pdf(
     file: Annotated[UploadFile, File(...)], tags: Annotated[str, Form()] = "[]"
 ):
     tag_list = json.loads(tags)
-    with tempfile.NamedTemporaryFile(
-        suffix=Path(file.filename).suffix, delete=False
-    ) as tmp:
-        shutil.copyfileobj(file.file, tmp)
-        temp_path = tmp.name
+    safe_name = Path(file.filename).name
+    dest = config.UPLOAD_DIR / safe_name
+    config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    with open(dest, "wb") as out:
+        shutil.copyfileobj(file.file, out)
 
     try:
-        result = engine.ingest(temp_path, tag_list, filename=file.filename)
-        if result.chunks == 0:
-            return {"message": "No text extracted."}
-        return {
-            "message": f"Successfully ingested {file.filename}",
-            "chunks": result.chunks,
-        }
+        result = engine.ingest(str(dest), tag_list, filename=safe_name)
     except ValueError as e:
+        dest.unlink(missing_ok=True)
         raise HTTPException(422, str(e)) from e
-    finally:
-        Path(temp_path).unlink(missing_ok=True)
+
+    if result.chunks == 0:
+        dest.unlink(missing_ok=True)
+        return {"message": "No text extracted."}
+    return {
+        "message": f"Successfully ingested {safe_name}",
+        "chunks": result.chunks,
+    }
 
 
 @router.post(
@@ -98,20 +139,20 @@ async def ingest_audio(
         )
 
     tag_list = json.loads(tags)
-    with tempfile.NamedTemporaryFile(
-        suffix=Path(file.filename).suffix, delete=False
-    ) as tmp:
-        shutil.copyfileobj(file.file, tmp)
-        temp_path = tmp.name
+    safe_name = Path(file.filename).name
+    dest = config.UPLOAD_DIR / safe_name
+    config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    with open(dest, "wb") as out:
+        shutil.copyfileobj(file.file, out)
 
     try:
-        result = engine.ingest(temp_path, tag_list, filename=file.filename)
+        result = engine.ingest(str(dest), tag_list, filename=safe_name)
     except ValueError as e:
+        dest.unlink(missing_ok=True)
         raise HTTPException(422, str(e)) from e
-    finally:
-        Path(temp_path).unlink(missing_ok=True)
 
     if result.chunks == 0:
+        dest.unlink(missing_ok=True)
         return Response(status_code=204)
     return result
 

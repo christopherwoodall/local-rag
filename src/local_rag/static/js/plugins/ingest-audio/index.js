@@ -59,6 +59,9 @@ export default {
       } finally {
         overlay.hidden = true;
         submit.disabled = false;
+        setFile(null);
+        fileInput.value = "";
+        tagsField.setTags([]);
       }
     });
   },
