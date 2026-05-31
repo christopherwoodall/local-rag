@@ -1,20 +1,17 @@
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, engine
+from . import config, engine, store
 from .api import router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure necessary runtime directories exist
-    os.makedirs(config.DOCS_DIR, exist_ok=True)
-    os.makedirs(config.STATIC_DIR, exist_ok=True)
     engine.init_db()
+    store.init_store()
     yield
 
 

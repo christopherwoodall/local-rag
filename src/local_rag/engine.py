@@ -1,12 +1,14 @@
-import uuid
+import contextlib
 
 from docling.chunking import HybridChunker
 from docling.document_converter import DocumentConverter
 from fastembed import SparseTextEmbedding, TextEmbedding
+from faster_whisper import WhisperModel
 from qdrant_client import QdrantClient, models
 
 from . import config
-from .schemas import DocumentMeta, SearchQuery, SearchResultItem
+from .schemas import IngestResult, SearchQuery, SearchResultItem
+from .store import mongo_store
 
 print("Loading ML models and initializing DB connections...")
 qdrant_client = QdrantClient(host=config.QDRANT_HOST, port=6333)
@@ -15,52 +17,59 @@ sparse_embed_model = SparseTextEmbedding(model_name="Qdrant/bm25")
 doc_converter = DocumentConverter()
 chunker = HybridChunker()
 
+print("Loading Whisper model (this may take a moment on first run)...")
+# CTranslate2 CPU backend — works on Apple Silicon without CUDA.
+# int8 reduces memory footprint on the Mac Mini.
+whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
+print("Whisper model loaded.")
+
+# Target collection schema — used for both creation and migration checks.
+_DENSE_CONFIG = models.VectorParams(size=768, distance=models.Distance.COSINE)
+_SPEC_CONFIG = models.VectorParams(size=128, distance=models.Distance.COSINE)
+_SPARSE_CONFIG = models.SparseVectorParams(modifier=models.Modifier.IDF)
+
 
 def init_db():
-    """Ensures Qdrant collection and payload indexes exist."""
-    if not qdrant_client.collection_exists(config.COLLECTION_NAME):
-        qdrant_client.create_collection(
-            collection_name=config.COLLECTION_NAME,
-            vectors_config={
-                "dense": models.VectorParams(size=768, distance=models.Distance.COSINE)
-            },
-            sparse_vectors_config={
-                "sparse": models.SparseVectorParams(modifier=models.Modifier.IDF)
-            },
-        )
-        qdrant_client.create_payload_index(
-            config.COLLECTION_NAME,
-            field_name="source",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        qdrant_client.create_payload_index(
-            config.COLLECTION_NAME,
-            field_name="tags",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
+    """Ensures Qdrant collection and payload indexes exist.
 
+    The collection carries three named vectors: dense, spectrogram, sparse.
+    Qdrant cannot add a named vector to an existing collection, so if an older
+    collection lacks 'spectrogram' we block startup and require the operator to
+    delete it and re-ingest (no silent data loss).
+    """
+    if qdrant_client.collection_exists(config.COLLECTION_NAME):
+        info = qdrant_client.get_collection(config.COLLECTION_NAME)
+        has_spectrogram = "spectrogram" in (info.config.params.vectors or {})
+        if not has_spectrogram:
+            print(
+                "\n⚠️  MIGRATION: Adding the 'spectrogram' vector requires recreating "
+                f"the collection '{config.COLLECTION_NAME}'.\n"
+                "   All existing indexed documents must be re-ingested.\n"
+                "   Delete the collection and restart to proceed, e.g.:\n"
+                f"     curl -X DELETE http://localhost:6333/collections/{config.COLLECTION_NAME}\n"
+            )
+            raise RuntimeError(
+                f"Collection '{config.COLLECTION_NAME}' requires manual migration. "
+                "See startup log for instructions."
+            )
+        return
 
-def get_all_documents() -> list[DocumentMeta]:
-    """Aggregates all distinct documents and their associated tags from Qdrant."""
-    results, _ = qdrant_client.scroll(
+    qdrant_client.create_collection(
         collection_name=config.COLLECTION_NAME,
-        with_payload=["source", "tags"],
-        limit=10000,
+        vectors_config={
+            "dense": _DENSE_CONFIG,
+            "spectrogram": _SPEC_CONFIG,
+        },
+        sparse_vectors_config={
+            "sparse": _SPARSE_CONFIG,
+        },
     )
-    doc_map = {}
-    for point in results[0]:
-        src = point.payload.get("source")
-        if not src:
-            continue
-        if src not in doc_map:
-            doc_map[src] = {"name": src, "chunks": 0, "tags": set()}
-        doc_map[src]["chunks"] += 1
-        doc_map[src]["tags"].update(point.payload.get("tags", []))
-
-    return [
-        DocumentMeta(name=v["name"], chunks=v["chunks"], tags=list(v["tags"]))
-        for v in doc_map.values()
-    ]
+    for field in ("source", "tags", "node_type"):
+        qdrant_client.create_payload_index(
+            config.COLLECTION_NAME,
+            field_name=field,
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
 
 
 def update_document_tags(filename: str, tags: list[str]):
@@ -78,64 +87,14 @@ def update_document_tags(filename: str, tags: list[str]):
             )
         ),
     )
+    with contextlib.suppress(Exception):
+        mongo_store.update_tags(filename, tags)
 
 
-def process_and_ingest(file_path: str, filename: str, tags: list[str]) -> int:
-    """Extracts, chunks, embeds, and pushes a PDF to Qdrant."""
-    # Delete existing chunks for idempotency
-    qdrant_client.delete(
-        collection_name=config.COLLECTION_NAME,
-        points_selector=models.FilterSelector(
-            filter=models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="source", match=models.MatchValue(value=filename)
-                    )
-                ]
-            )
-        ),
-    )
-
-    conversion_result = doc_converter.convert(file_path)
-    markdown_text = conversion_result.document.export_to_markdown()
-
-    with open(config.DOCS_DIR / f"{filename}.md", "w", encoding="utf-8") as f:
-        f.write(markdown_text)
-
-    chunks = [
-        c.text for c in chunker.chunk(conversion_result.document) if c.text.strip()
-    ]
-    if not chunks:
-        return 0
-
-    chunks_prefixed = [f"search_document: {c}" for c in chunks]
-    dense_vectors = list(dense_embed_model.embed(chunks_prefixed))
-    sparse_vectors = list(sparse_embed_model.embed(chunks))
-
-    points = []
-    for idx, chunk in enumerate(chunks):
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{filename}_{idx}"))
-        points.append(
-            models.PointStruct(
-                id=point_id,
-                vector={
-                    "dense": dense_vectors[idx].tolist(),
-                    "sparse": {
-                        "indices": sparse_vectors[idx].indices.tolist(),
-                        "values": sparse_vectors[idx].values.tolist(),
-                    },
-                },
-                payload={
-                    "text": chunk,
-                    "source": filename,
-                    "chunk_index": idx,
-                    "tags": tags,
-                },
-            )
-        )
-
-    qdrant_client.upsert(collection_name=config.COLLECTION_NAME, points=points)
-    return len(chunks)
+def ingest(source: str, tags: list[str], **kwargs) -> IngestResult:
+    """Routes a source to its registered ingestor plugin and ingests it."""
+    ingestor = registry.get_ingestor(source)
+    return ingestor.ingest(source, tags, **kwargs)
 
 
 def search(req: SearchQuery) -> list[SearchResultItem]:
@@ -193,3 +152,7 @@ def search(req: SearchQuery) -> list[SearchResultItem]:
         )
         for pt in results
     ]
+
+
+from . import ingestors  # noqa: E402, F401
+from .ingestors.base import registry  # noqa: E402

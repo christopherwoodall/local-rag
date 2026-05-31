@@ -1,0 +1,19 @@
+<div class="main-toolbar">
+  <input class="query-input" type="text" data-ref="query" placeholder="ask anything about your documents…" aria-label="search query" />
+  <button class="btn-search" data-ref="searchBtn">
+    <i class="ti ti-arrow-right" aria-hidden="true"></i> search
+  </button>
+  <select class="limit-select" data-ref="limit" aria-label="result limit">
+    <option value="3">top 3</option>
+    <option value="5" selected>top 5</option>
+    <option value="10">top 10</option>
+  </select>
+</div>
+<div class="active-tag-filters hidden" data-ref="activeFilters"></div>
+<div class="results-area" data-ref="results">
+  <div class="empty-state">
+    <i class="ti ti-books" aria-hidden="true"></i>
+    <span class="empty-title">ready to search</span>
+    <span class="empty-sub">run a query to pull chunks</span>
+  </div>
+</div>

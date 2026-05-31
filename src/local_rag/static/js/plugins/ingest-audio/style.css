@@ -1,0 +1,65 @@
+.plugin-ingest-audio .ingest-form {
+  position: relative;
+}
+.plugin-ingest-audio .dropzone {
+  border: 1px dashed var(--color-border-secondary);
+  border-radius: var(--radius-md);
+  padding: 1.75rem 1rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: var(--color-bg-primary);
+}
+.plugin-ingest-audio .dropzone:hover,
+.plugin-ingest-audio .dropzone.dragover {
+  border-color: var(--color-border-primary);
+  background: var(--color-bg-secondary);
+}
+.plugin-ingest-audio .dropzone i {
+  font-size: 22px;
+  color: var(--color-text-secondary);
+  display: block;
+  margin-bottom: 6px;
+}
+.plugin-ingest-audio .dropzone span {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.plugin-ingest-audio .audio-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: color-mix(in srgb, var(--color-bg-primary) 88%, transparent);
+  backdrop-filter: blur(2px);
+  border-radius: var(--radius-md);
+  z-index: 5;
+}
+.plugin-ingest-audio .audio-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--color-border-secondary);
+  border-top-color: var(--color-text-primary);
+  border-radius: 50%;
+  animation: audio-spin 0.8s linear infinite;
+}
+.plugin-ingest-audio .audio-overlay-text {
+  font-size: 13px;
+  color: var(--color-text-primary);
+  text-align: center;
+}
+.plugin-ingest-audio .audio-overlay-sub {
+  display: block;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  margin-top: 2px;
+}
+@keyframes audio-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
