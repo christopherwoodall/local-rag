@@ -2,6 +2,7 @@ import contextlib
 
 from docling.chunking import HybridChunker
 from docling.document_converter import DocumentConverter
+from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
 from fastembed import SparseTextEmbedding, TextEmbedding
 from faster_whisper import WhisperModel
 from qdrant_client import QdrantClient, models
@@ -15,7 +16,12 @@ qdrant_client = QdrantClient(host=config.QDRANT_HOST, port=6333)
 dense_embed_model = TextEmbedding(model_name="nomic-ai/nomic-embed-text-v1.5")
 sparse_embed_model = SparseTextEmbedding(model_name="Qdrant/bm25")
 doc_converter = DocumentConverter()
-chunker = HybridChunker()
+chunker = HybridChunker(
+    tokenizer=HuggingFaceTokenizer.from_pretrained(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        max_tokens=500,
+    )
+)
 
 print("Loading Whisper model (this may take a moment on first run)...")
 # CTranslate2 CPU backend — works on Apple Silicon without CUDA.
