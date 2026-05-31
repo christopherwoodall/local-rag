@@ -26,6 +26,9 @@
   color: var(--color-text-secondary);
 }
 
+.plugin-ingest-audio .audio-overlay[hidden] {
+  display: none;
+}
 .plugin-ingest-audio .audio-overlay {
   position: absolute;
   inset: 0;
