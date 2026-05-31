@@ -30,6 +30,7 @@ flowchart LR
 | -------- | ------------------------------------------------------------------- | ------------------------------------------------- |
 | Qdrant   | All vectors; **source of truth** for retrieval.                     | Required for ingest/search.                       |
 | MongoDB  | Document metadata + full extracted text/transcript for the UI.      | **Non-critical** — writes are suppressed on error; search still works, UI metadata degrades. |
+| Uploads  | Original files (`data/uploads/`) for download and media playback.   | **Non-critical** — 404 on missing file; search/ingest unaffected.                |
 
 MongoDB writes from ingestors are wrapped in `contextlib.suppress(Exception)`, so a Mongo outage never breaks ingestion or search. The MongoDB document `_id` is the filename/source id; records follow the `DocumentRecord` schema (filename, source_type, tags, chunk_count, ingested_at, markdown_content, source_url, content_hash).
 
@@ -65,10 +66,10 @@ Qdrant cannot add a named vector to an existing collection. `engine.init_db()` t
 
 `engine.search()` dispatches on `SearchQuery.mode`:
 
-- `dense` / `sparse` — single-vector query via the classic `search()` API.
+- `dense` / `sparse` — single-vector query via `query_points()` with `query` + `using`.
 - `hybrid` (default) — `query_points()` with a `FusionQuery(RRF)` prefetching both `dense` and `sparse`. RRF fusion requires **Qdrant ≥ 1.10** (Compose pins `v1.18.0`).
 
-Optional `tags` are translated into a Qdrant `Filter` (must-match) applied to all modes.
+Optional `tags` are translated into a Qdrant `Filter` (must-match). For `dense`/`sparse` the filter is passed as `query_filter`; for `hybrid` it is placed **inside** each `Prefetch.filter` so it applies before RRF fusion.
 
 ## Ingestor plugin system
 
@@ -99,6 +100,17 @@ classDiagram
 
 Each ingestor deletes prior points for the same `source` before upserting (idempotent re-ingest), then writes a `DocumentRecord` to MongoDB.
 
+Uploaded files (PDF, audio) are persisted to `data/uploads/` during ingestion and cleaned up on failure or empty results. URL sources have no local file.
+
+## Source management
+
+`engine` exposes two helpers beyond `ingest()` and `search()`:
+
+- `delete_document(filename)` — removes every Qdrant point matching `source == filename`. Called by the `DELETE /api/document/{filename}` endpoint, which also removes the Mongo record and the local file.
+- `get_spectrogram(filename)` — reads chunk 0's `spectrogram` vector from Qdrant (only fetched for audio documents). Returns `None` if absent or zero-padded.
+
+The API layer guards all file-access endpoints (`GET /api/file/{filename}`, `DELETE /api/document/{filename}`) with `_safe_upload_path()`, which uses `pathlib.Path.is_relative_to()` to reject path traversal and absolute paths before any filesystem operation.
+
 ## Frontend
 
 A dependency-free, native ES-module plugin system (one Tabler-icons CDN stylesheet; no bundler).
@@ -113,7 +125,7 @@ A dependency-free, native ES-module plugin system (one Tabler-icons CDN styleshe
 | -------------- | ------- | --------------------------------------------------- |
 | `library`      | sidebar | Document list, tag/mode filters, "add source".      |
 | `search`       | panel   | Query input, mode toggle, results.                  |
-| `reader`       | panel   | Full document/transcript view.                      |
+| `reader`       | panel   | Document/transcript view, audio playback, spectrogram sparkline, download, delete. |
 | `ingest-pdf`   | ingest  | PDF upload tab in the "add source" modal.           |
 | `ingest-url`   | ingest  | URL ingest tab.                                     |
 | `ingest-audio` | ingest  | Audio upload tab (with transcription loading state).|
@@ -122,4 +134,4 @@ Ingest plugins (slot `ingest`) are rendered as tabs inside a single shared "add 
 
 ## Configuration
 
-Environment variables (defaults in `config.py`): `QDRANT_HOST` (`localhost`), `MONGO_URI` (`mongodb://localhost:27017`), `MONGO_DB` (`rag`). Collection name: `local_agent_knowledge`. Ports: API `8000`, Qdrant REST `6333`, MongoDB `27017`.
+Environment variables (defaults in `config.py`): `QDRANT_HOST` (`localhost`), `MONGO_URI` (`mongodb://localhost:27017`), `MONGO_DB` (`rag`), `UPLOAD_DIR` (`<repo>/data/uploads`). Collection name: `local_agent_knowledge`. Ports: API `8000`, Qdrant REST `6333`, MongoDB `27017`.

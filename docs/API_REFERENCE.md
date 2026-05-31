@@ -72,9 +72,16 @@ curl http://localhost:8000/api/documents
 ---
 
 ### `GET /api/document/{filename}`
-Return the full extracted text / transcript for a document.
+Return the full extracted text / transcript and metadata for a document.
 
-- **`200`** — `{ "content": "<markdown or transcript text>" }`
+**Response `200`**
+| Field          | Type                | Notes                                              |
+| -------------- | ------------------- | -------------------------------------------------- |
+| `content`      | `str`               | Markdown or transcript text.                       |
+| `source_type`  | `str`               | `pdf` \| `url` \| `audio`.                         |
+| `source_url`   | `str \| null`       | Original URL (URL sources only).                   |
+| `spectrogram`  | `list[float] \| null` | 128-dim spectrogram vector (audio only).        |
+
 - **`404`** — `{ "detail": "Document not found" }`
 
 ```bash
@@ -100,6 +107,35 @@ Overwrite the tags on every chunk of a document (updates Qdrant payloads and Mon
 curl -X PATCH http://localhost:8000/api/tags/paper.pdf \
   -H "Content-Type: application/json" \
   -d '{"tags":["research","ml"]}'
+```
+
+---
+
+### `GET /api/file/{filename}`
+Serve a persisted upload file (PDF, audio, etc.) for download or browser playback.
+
+- **`200`** — the file (content-type derived from extension, e.g. `audio/mpeg` for `.mp3`).
+- **`400`** — `{ "detail": "Invalid filename" }` (path traversal or absolute path rejected).
+- **`404`** — `{ "detail": "File not found" }` (file was never persisted or was deleted).
+
+> **Security:** the endpoint validates that the resolved path is strictly inside `data/uploads/` using `pathlib.Path.is_relative_to()`. Requests containing `../` or absolute paths receive a 400 and never touch the filesystem.
+
+```bash
+curl -O http://localhost:8000/api/file/meeting.mp3
+```
+
+---
+
+### `DELETE /api/document/{filename}`
+Purge a document from all stores: Qdrant vectors, MongoDB metadata, and the local upload file.
+
+- **`200`** — `{ "deleted": "<filename>" }`
+- **`400`** — `{ "detail": "Invalid filename" }` (path traversal rejected).
+
+> Works for URL-sourced documents too (no local file to delete — the `unlink` is a no-op).
+
+```bash
+curl -X DELETE http://localhost:8000/api/document/paper.pdf
 ```
 
 ---
