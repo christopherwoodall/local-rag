@@ -102,10 +102,10 @@ def search(req: SearchQuery) -> list[SearchResultItem]:
     query_prefixed = f"search_query: {req.query}"
     query_dense = list(dense_embed_model.embed([query_prefixed]))[0].tolist()
     query_sparse_raw = list(sparse_embed_model.embed([req.query]))[0]
-    query_sparse = {
-        "indices": query_sparse_raw.indices.tolist(),
-        "values": query_sparse_raw.values.tolist(),
-    }
+    query_sparse_vec = models.SparseVector(
+        indices=query_sparse_raw.indices.tolist(),
+        values=query_sparse_raw.values.tolist(),
+    )
 
     query_filter = None
     if req.tags:
@@ -116,30 +116,43 @@ def search(req: SearchQuery) -> list[SearchResultItem]:
         query_filter = models.Filter(must=must_conditions)
 
     if req.mode == "dense":
-        results = qdrant_client.search(
-            collection_name=config.COLLECTION_NAME,
-            query_vector=("dense", query_dense),
-            query_filter=query_filter,
-            limit=req.limit,
-        )
-    elif req.mode == "sparse":
-        results = qdrant_client.search(
-            collection_name=config.COLLECTION_NAME,
-            query_vector=("sparse", query_sparse),
-            query_filter=query_filter,
-            limit=req.limit,
-        )
-    else:
-        prefetch = [
-            models.Prefetch(vector={"dense": query_dense}, limit=req.limit),
-            models.Prefetch(vector={"sparse": query_sparse}, limit=req.limit),
-        ]
         results = qdrant_client.query_points(
             collection_name=config.COLLECTION_NAME,
-            prefetch=prefetch,
-            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            query=query_dense,
+            using="dense",
             query_filter=query_filter,
             limit=req.limit,
+            with_payload=True,
+        ).points
+    elif req.mode == "sparse":
+        results = qdrant_client.query_points(
+            collection_name=config.COLLECTION_NAME,
+            query=query_sparse_vec,
+            using="sparse",
+            query_filter=query_filter,
+            limit=req.limit,
+            with_payload=True,
+        ).points
+    else:
+        results = qdrant_client.query_points(
+            collection_name=config.COLLECTION_NAME,
+            prefetch=[
+                models.Prefetch(
+                    query=query_dense,
+                    using="dense",
+                    limit=req.limit * 2,
+                    filter=query_filter,
+                ),
+                models.Prefetch(
+                    query=query_sparse_vec,
+                    using="sparse",
+                    limit=req.limit * 2,
+                    filter=query_filter,
+                ),
+            ],
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            limit=req.limit,
+            with_payload=True,
         ).points
 
     return [
