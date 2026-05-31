@@ -1,4 +1,7 @@
 # Project specific
+TODO.md
+PROMPT_CHAIN.md
+agent_prompts/**
 qdrant_storage/**
 mongo_data/**
 
