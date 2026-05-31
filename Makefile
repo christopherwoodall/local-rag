@@ -43,22 +43,54 @@ help: ## List commands <default>
 -	awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\t\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 
+.PHONY: install
+install: ## Install all dependencies (incl. dev) via uv
+-	uv sync --extra dev
+
+
+.PHONY: up
+up: ## Start docker services (qdrant + mongo)
+-	docker compose up -d
+
+
+.PHONY: down
+down: ## Stop and remove docker services (data preserved)
+-	docker compose down
+
+
+.PHONY: logs
+logs: ## Tail docker service logs (qdrant + mongo)
+-	docker compose logs -f --tail=100
+
+
+.PHONY: serve
+serve: ## Run the RAG API server (uvicorn on :8000)
+-	uv run start-rag-server
+
+
+.PHONY: run
+run: ## Start docker services, then run the RAG server
+-	docker compose up -d
+-	uv run start-rag-server
+
+
+.PHONY: clean
+clean: ## Stop services + remove build/cache artifacts (KEEPS db data)
+-	docker compose down
+-	rm -rf $(BUILD_DIR) $(SRC_DIR)/*.egg-info $(PROJECT_DIR)/.ruff_cache
+-	find $(PROJECT_DIR) -type d -name '__pycache__' -prune -exec rm -rf {} +
+
+
 .PHONY: build
-build: ## Build the application
+build: ## Build the application wheel
 -	uv pip install --editable .
 -	hatch build --clean --target wheel
 
 
 .PHONY: lint
-lint: ## Lint the code
+lint: ## Lint and format the code
 -	ruff check $(SRC_DIR) --fix
 -	ruff format $(SRC_DIR)
-
-
-.PHONY: run
-run: ## Run the RAG server
--	docker compose up -d --force-recreate
--	uv run start-rag-server
 
 
 .PHONY: tree

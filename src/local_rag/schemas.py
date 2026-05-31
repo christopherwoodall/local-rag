@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from datetime import datetime
+
+from pydantic import BaseModel, Field, HttpUrl
 
 
 class SearchQuery(BaseModel):
@@ -22,5 +24,28 @@ class DocumentMeta(BaseModel):
     tags: list[str]
 
 
+class IngestResult(BaseModel):
+    source: str
+    source_type: str
+    chunks: int
+    tags: list[str]
+
+
 class TagUpdateRequest(BaseModel):
     tags: list[str]
+
+
+class URLIngestRequest(BaseModel):
+    url: HttpUrl
+    tags: list[str] = []
+
+
+class DocumentRecord(BaseModel):
+    filename: str
+    source_type: str
+    tags: list[str] = []
+    chunk_count: int = 0
+    ingested_at: datetime = Field(default_factory=datetime.utcnow)
+    markdown_content: str = ""
+    source_url: str | None = None
+    content_hash: str | None = None

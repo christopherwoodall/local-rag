@@ -1,0 +1,17 @@
+.plugin-library {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.plugin-library .doc-empty {
+  padding: 1rem;
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  font-family: var(--mono);
+}
+.plugin-library .upload-zone {
+  width: calc(100% - 1rem);
+  font-family: var(--sans);
+}

@@ -1,0 +1,10 @@
+.plugin-reader {
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.plugin-reader .reader-content {
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}

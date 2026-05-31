@@ -1,0 +1,15 @@
+.plugin-search {
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.plugin-search .clear-filters {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  margin-left: auto;
+}
+.plugin-search .ti-loader.spin {
+  animation: spin 1s linear infinite;
+}
