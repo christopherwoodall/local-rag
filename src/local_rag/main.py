@@ -10,6 +10,7 @@ from .api import router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     engine.init_db()
     store.init_store()
     yield

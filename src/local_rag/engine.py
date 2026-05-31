@@ -97,6 +97,50 @@ def update_document_tags(filename: str, tags: list[str]):
         mongo_store.update_tags(filename, tags)
 
 
+def delete_document(filename: str) -> None:
+    """Removes every vector point belonging to a document from Qdrant."""
+    qdrant_client.delete(
+        collection_name=config.COLLECTION_NAME,
+        points_selector=models.FilterSelector(
+            filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="source", match=models.MatchValue(value=filename)
+                    )
+                ]
+            )
+        ),
+    )
+
+
+def get_spectrogram(filename: str) -> list[float] | None:
+    """Returns the file-level spectrogram vector (chunk 0) for a document, or
+    None if absent or zero-padded (non-audio sources)."""
+    points, _ = qdrant_client.scroll(
+        collection_name=config.COLLECTION_NAME,
+        scroll_filter=models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="source", match=models.MatchValue(value=filename)
+                ),
+                models.FieldCondition(
+                    key="chunk_index", match=models.MatchValue(value=0)
+                ),
+            ]
+        ),
+        limit=1,
+        with_vectors=["spectrogram"],
+        with_payload=False,
+    )
+    if not points:
+        return None
+    vectors = points[0].vector
+    spec = vectors.get("spectrogram") if isinstance(vectors, dict) else None
+    if not spec or not any(spec):
+        return None
+    return spec
+
+
 def ingest(source: str, tags: list[str], **kwargs) -> IngestResult:
     """Routes a source to its registered ingestor plugin and ingests it."""
     ingestor = registry.get_ingestor(source)

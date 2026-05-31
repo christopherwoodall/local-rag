@@ -7,6 +7,7 @@ documents/**
 !documents/.gitkeep
 qdrant_storage/**
 mongo_data/**
+data/**
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

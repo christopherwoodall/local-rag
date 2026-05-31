@@ -44,6 +44,17 @@ export const api = {
     return res.json();
   },
 
+  fileUrl(name) {
+    return `${API_BASE}/file/${encodeURIComponent(name)}`;
+  },
+
+  async deleteDocument(name) {
+    const res = await request(`/document/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
+    return res.json();
+  },
+
   async updateTags(name, tags) {
     const res = await request(`/tags/${encodeURIComponent(name)}`, {
       method: "PATCH",
