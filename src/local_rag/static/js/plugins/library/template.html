@@ -1,0 +1,30 @@
+<div class="sidebar-header">
+  <div class="logo">
+    <div class="logo-mark"><i class="ti ti-database" aria-hidden="true"></i></div>
+    <span class="logo-text">knowledge</span>
+  </div>
+  <div class="search-box">
+    <i class="ti ti-search si" aria-hidden="true"></i>
+    <input type="text" placeholder="filter documents…" data-ref="docFilter" aria-label="filter document list" />
+  </div>
+  <div class="mode-toggle" data-ref="modeToggle">
+    <button class="mode-btn active" data-mode="hybrid">hybrid</button>
+    <button class="mode-btn" data-mode="dense">dense</button>
+    <button class="mode-btn" data-mode="sparse">sparse</button>
+  </div>
+</div>
+
+<div class="tag-filter-rail">
+  <div class="rail-label">filter by tag</div>
+  <div class="tag-chips" data-ref="tagChips"></div>
+</div>
+
+<div class="doc-list">
+  <div class="doc-section-label" data-ref="sectionLabel">indexed documents</div>
+  <div data-ref="docsContainer"></div>
+</div>
+
+<button class="upload-zone" data-ref="addSource">
+  <i class="ti ti-plus" aria-hidden="true"></i>
+  <span>add source</span>
+</button>
