@@ -1,5 +1,7 @@
 # Local RAG
 
+![screenshot](/docs/assets/screenshot.png)
+
 A fully local, Apple-Silicon-optimized Retrieval-Augmented Generation (RAG) server. Ingest **PDFs, web pages, and audio**, then run **hybrid vector search** over the results — all on your own machine, with a built-in modular web UI.
 
 - **Qdrant** — hybrid vector store (dense + sparse + spectrogram vectors), the source of truth for search.
