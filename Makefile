@@ -56,9 +56,9 @@ lint: ## Lint the code
 
 
 .PHONY: run
-run: ## Run the proxy server
+run: ## Run the RAG server
 -	docker compose up -d --force-recreate
--   uv run start-proxy
+-	uv run start-rag-server
 
 
 .PHONY: tree
